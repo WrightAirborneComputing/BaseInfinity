@@ -3,6 +3,10 @@ import math
 EPS = 1e-9
 EXPONENTS = [8, 7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6, -7, -8]
 
+_arithPrintEnabled = False
+_truncPrintEnabled = False
+_badMatrixPrintEnabled = False
+
 def IsZero(value):
     return math.fabs(value) < EPS
 # def
@@ -45,8 +49,6 @@ class Number:
         # Truncation flag
         self.truncated = False
 
-        # Instrumentation
-        self.print_enabled = True
     # def
 
     @staticmethod
@@ -68,7 +70,6 @@ class Number:
     def Clone(self):
         result = Number.FromColumns({e: self.column[e].mantissa for e in EXPONENTS})
         result.truncated = self.truncated
-        result.print_enabled = self.print_enabled
         return result
     # def
 
@@ -94,16 +95,6 @@ class Number:
         if not IsZero(mantissa):
             print("Warning: %s produced exponent %d outside supported range; truncating term %g*n^%d" %
                   (context, exp, mantissa, exp))
-            # Truncate
-        # if
-    # def
-
-    def AddToExponent(self, exp, mantissa, context):
-        if exp in self.column:
-            self.column[exp].mantissa += mantissa
-        else:
-            self.WarnAndTruncate(exp, mantissa, context)
-            self.truncated = True
         # if
     # def
 
@@ -170,14 +161,6 @@ class Number:
         return None
     # def
 
-    def EnablePrint(self):
-        self.print_enabled = True
-    # def
-
-    def DisablePrint(self):
-        self.print_enabled = False
-    # def
-
     def Text(self):
         self.Clean()
 
@@ -228,8 +211,7 @@ class Number:
             result.column[i].mantissa = self.column[i].mantissa + operand.column[i].mantissa
         # for
         result.Clean()
-        if self.print_enabled:
-            print("%s + %s = %s" % (self.Text(), operand.Text(), result.Text()))
+        if _arithPrintEnabled: print("%s + %s = %s" % (self.Text(), operand.Text(), result.Text()))
         return result
     # def
 
@@ -240,8 +222,7 @@ class Number:
             result.column[i].mantissa = self.column[i].mantissa - operand.column[i].mantissa
         # for
         result.Clean()
-        if self.print_enabled:
-            print("%s - %s = %s" % (self.Text(), operand.Text(), result.Text()))
+        if _arithPrintEnabled: print("%s - %s = %s" % (self.Text(), operand.Text(), result.Text()))
         return result
     # def
 
@@ -267,8 +248,7 @@ class Number:
 
                 # Detect overflow
                 if resExponent not in result.column:
-                    result.WarnAndTruncate(resExponent, resMantissa, "__mul__")
-                    print("Multiplication truncated because exponent [%d] is outside supported range." % resExponent)
+                    if(_truncPrintEnabled): print("Multiplication truncated because exponent [%d] is outside supported range." % resExponent)
                     result.truncated = True
                     overflow = True
                     break
@@ -285,9 +265,7 @@ class Number:
         result.Clean()
         result.Round()
 
-        if self.print_enabled:
-            print("%s * %s = %s" % (self.Text(), operand.Text(), result.Text()))
-        # if
+        if _arithPrintEnabled: print("%s * %s = %s" % (self.Text(), operand.Text(), result.Text()))
 
         return result
     # def
@@ -340,8 +318,7 @@ class Number:
 
             # Check for overflow
             if qExp not in quotient.column:
-                quotient.WarnAndTruncate(qExp, qCoeff, "__truediv__")
-                print("Division truncated because next quotient term [%d] is outside supported range." % (qExp))
+                if(_truncPrintEnabled): print("Division truncated because next quotient term [%d] is outside supported range." % (qExp))
                 quotient.truncated = True
                 hit_step_limit = False
                 break
@@ -350,12 +327,6 @@ class Number:
             qTerm = Number(0.0)
             qTerm.column[qExp].mantissa = qCoeff
             qTerm.Clean()
-
-            # Handle inst
-            quotient.DisablePrint()
-            qTerm.DisablePrint()
-            remainder.DisablePrint()
-            effective_divisor.DisablePrint()
 
             quotient = quotient + qTerm
             mult_result = qTerm * effective_divisor
@@ -366,28 +337,20 @@ class Number:
                 quotient.truncated = True
             # if
 
-            # Handle inst
-            quotient.EnablePrint()
-            qTerm.EnablePrint()
-            remainder.EnablePrint()
-            effective_divisor.EnablePrint()
-
         # for
 
         if hit_step_limit and not remainder.IsTrueZero():
-            print("Warning: division truncated after %d steps (max_steps reached)" % max_steps)
+            if _truncPrintEnabled: print("Warning: division truncated after %d steps (max_steps reached)" % max_steps)
             quotient.truncated = True
         # if
 
         quotient.Clean()
         quotient.Round()
 
-        if not self.print_enabled:
-            pass
-        elif remainder.IsTrueZero():
-            print("%s / %s = %s" % (self.Text(), operand.Text(), quotient.Text()))
+        if remainder.IsTrueZero():
+            if _arithPrintEnabled: print("%s / %s = %s" % (self.Text(), operand.Text(), quotient.Text()))
         else:
-            print("%s / %s = %s+%s" % (self.Text(), operand.Text(), quotient.Text(), remainder.Text()))
+            if _arithPrintEnabled: print("%s / %s = %s+%s" % (self.Text(), operand.Text(), quotient.Text(), remainder.Text()))
         # if
         return quotient
     # def
@@ -433,7 +396,7 @@ class Matrix:
         x = [Number(0.0) for _ in range(n)]
         for i in reversed(range(n)):
             if U[i][i] == Number(0):
-                print("Warning! Zero diagonal element in U during back substitution.")
+                if _badMatrixPrintEnabled: print("Warning! Zero diagonal element in U during back substitution.")
             # if
             sum_ = Number(0.0)
             for j in range(i + 1, n):
@@ -483,7 +446,7 @@ class Matrix:
                         sum_ += L[k][j] * U[j][i]
                     # for
                     if U[i][i] == Number(0.0):
-                        print("Warning! Zero pivot encountered. LU decomposition fails.")
+                        if _badMatrixPrintEnabled: print("Warning! Zero pivot encountered.")
                     # if
                     L[k][i] = (self.matrix[k][i] - sum_) / U[i][i]
                 # if
@@ -524,6 +487,10 @@ class Matrix:
 # class
 
 def RunArithTests():
+
+    global _arithPrintEnabled
+    _arithPrintEnabled = True
+
     real1        = Number(1.0)             # 1
     real2        = Number(2.0)             # 2
     trueZero     = Number(0.0)             # 0
@@ -605,6 +572,8 @@ def RunArithTests():
 # def
 
 def RunMatrixTest(mat):
+    global _arithPrintEnabled
+    _arithPrintEnabled = False
 
     mat_inv = mat.Invert()
     mat_inv_inv = mat_inv.Invert()
