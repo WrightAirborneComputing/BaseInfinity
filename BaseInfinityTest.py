@@ -1,7 +1,7 @@
 import math
 
 EPS = 1e-9
-EXPONENTS = [7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6, -7]
+EXPONENTS = [8, 7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6, -7, -8]
 
 def IsZero(value):
     return math.fabs(value) < EPS
@@ -17,9 +17,7 @@ class Column:
     def Text(self):
         return "%f" % self.mantissa
     # def
-
 # class
-
 
 class Number:
 
@@ -44,6 +42,9 @@ class Number:
             raise ValueError("Expected 1,3,5 arguments")
         # if
 
+        # Truncation flag
+        self.truncated = False
+
         # Instrumentation
         self.print_enabled = True
     # def
@@ -57,6 +58,7 @@ class Number:
             else:
                 if not IsZero(value):
                     print("Warning: constructor ignored exponent %d outside supported range" % exp)
+                    out.truncated = True
                 # if
             # if
         # for
@@ -64,7 +66,10 @@ class Number:
     # def
 
     def Clone(self):
-        return Number.FromColumns({e: self.column[e].mantissa for e in EXPONENTS})
+        result = Number.FromColumns({e: self.column[e].mantissa for e in EXPONENTS})
+        result.truncated = self.truncated
+        result.print_enabled = self.print_enabled
+        return result
     # def
 
     def Clean(self):
@@ -73,6 +78,15 @@ class Number:
                 self.column[e].mantissa = 0.0
             # if
         # for
+
+        return self
+    # def
+
+    def Round(self):
+        # Force the last (rightmost) negative exponent column to zero
+        #last_neg_exp = min(EXPONENTS)  # = -7
+        #self.column[last_neg_exp].mantissa = 0.0
+
         return self
     # def
 
@@ -80,6 +94,7 @@ class Number:
         if not IsZero(mantissa):
             print("Warning: %s produced exponent %d outside supported range; truncating term %g*n^%d" %
                   (context, exp, mantissa, exp))
+            # Truncate
         # if
     # def
 
@@ -88,6 +103,7 @@ class Number:
             self.column[exp].mantissa += mantissa
         else:
             self.WarnAndTruncate(exp, mantissa, context)
+            self.truncated = True
         # if
     # def
 
@@ -97,6 +113,42 @@ class Number:
                 return False
             # if
         # for
+        return True
+    # def
+
+    def IsUnitZero(self):
+        self.Clean()
+
+        for e in EXPONENTS:
+            if e == -1:
+                if not IsZero(self.column[e].mantissa - 1.0):
+                    return False
+                # if
+            else:
+                if not IsZero(self.column[e].mantissa):
+                    return False
+                # if
+            # if
+        # for
+
+        return True
+    # def
+
+    def IsUnitInfinity(self):
+        self.Clean()
+
+        for e in EXPONENTS:
+            if e == 1:
+                if not IsZero(self.column[e].mantissa - 1.0):
+                    return False
+                # if
+            else:
+                if not IsZero(self.column[e].mantissa):
+                    return False
+                # if
+            # if
+        # for
+
         return True
     # def
 
@@ -129,12 +181,20 @@ class Number:
     def Text(self):
         self.Clean()
 
-        # Find all non-zero exponents
-        used = [exp for exp in EXPONENTS if not IsZero(self.column[exp].mantissa)]
-
-        if len(used) == 0:
+        if self.IsTrueZero():
             return "TrueZero"
         # if
+
+        if self.IsUnitZero():
+            return "UnitZero"
+        # if
+
+        if self.IsUnitInfinity():
+            return "UnitInfinity"
+        # if
+
+        # Find all non-zero exponents
+        used = [exp for exp in EXPONENTS if not IsZero(self.column[exp].mantissa)]
 
         # Determine symmetric range around 0
         k = max(abs(min(used)), abs(max(used)))
@@ -150,32 +210,37 @@ class Number:
         return "[" + ",".join(values) + "]"
     # def
 
-    def TextReal(self):
-        if(self.LeadingExp()>0):
-            return "[Inf]"
+    def Real(self):
+        lead = self.LeadingExp()
+        if lead is None:
+            return self.column[0].mantissa
+        elif lead > 0:
+            return float('inf')
         else:
-            return "[" + self.column[0].Text() + "]"
+            return self.column[0].mantissa
         # if
     # def
 
     def __add__(self, operand):
         result = Number(0.0)
+        result.truncated = self.truncated or operand.truncated
         for i in EXPONENTS:
             result.column[i].mantissa = self.column[i].mantissa + operand.column[i].mantissa
         # for
         result.Clean()
-        if(self.print_enabled):
+        if self.print_enabled:
             print("%s + %s = %s" % (self.Text(), operand.Text(), result.Text()))
         return result
     # def
 
     def __sub__(self, operand):
         result = Number(0.0)
+        result.truncated = self.truncated or operand.truncated
         for i in EXPONENTS:
             result.column[i].mantissa = self.column[i].mantissa - operand.column[i].mantissa
         # for
         result.Clean()
-        if(self.print_enabled):
+        if self.print_enabled:
             print("%s - %s = %s" % (self.Text(), operand.Text(), result.Text()))
         return result
     # def
@@ -184,25 +249,50 @@ class Number:
 
         # Empty number for the result
         result = Number(0.0)
+        result.truncated = self.truncated or operand.truncated
+
+        overflow = False
 
         # Long-multiply
         for selfExp in EXPONENTS:
             for operandExp in EXPONENTS:
+
                 resMantissa = self.column[selfExp].mantissa * operand.column[operandExp].mantissa
+
+                if IsZero(resMantissa):
+                    continue
+                # if
+
                 resExponent = self.column[selfExp].exp + operand.column[operandExp].exp
-                result.AddToExponent(resExponent, resMantissa, "__mul__")
+
+                # Detect overflow
+                if resExponent not in result.column:
+                    result.WarnAndTruncate(resExponent, resMantissa, "__mul__")
+                    print("Multiplication truncated because exponent [%d] is outside supported range." % resExponent)
+                    result.truncated = True
+                    overflow = True
+                    break
+                # if
+
+                result.column[resExponent].mantissa += resMantissa
             # for
+
+            if overflow:
+                break
+            # if
         # for
 
         result.Clean()
-        if(self.print_enabled):
+        result.Round()
+
+        if self.print_enabled:
             print("%s * %s = %s" % (self.Text(), operand.Text(), result.Text()))
+        # if
+
         return result
     # def
 
     def __truediv__(self, operand):
-
-        #print("DIV: %s / %s" % (self.Text(), operand.Text()))
 
         operand = operand.Clone().Clean()
 
@@ -212,12 +302,17 @@ class Number:
         # Create an empty number for the result
         quotient = Number(0.0)
 
+        # Propagate incoming truncation state
+        quotient.truncated = self.truncated or operand.truncated
+        remainder.truncated = self.truncated
+
         # Find leading exponent
         divLeadExp = operand.LeadingExp()
         if divLeadExp is None:
             # Construct 1/inf for true-zero operand
             effective_divisor = Number(0.0, 0.0, 1.0)
             effective_divisor.Clean()
+            effective_divisor.truncated = operand.truncated
 
             divLeadExp = effective_divisor.LeadingExp()
             divLeadCoeff = effective_divisor.column[divLeadExp].mantissa
@@ -243,12 +338,11 @@ class Number:
             qExp = remLeadExp - divLeadExp
             qCoeff = remLeadCoeff / divLeadCoeff
 
-            #print("Quot[%s] Remainder[%s] RemLeadExp[%d]" % (quotient.Text(),remainder.Text(),remLeadExp))
-
             # Check for overflow
             if qExp not in quotient.column:
                 quotient.WarnAndTruncate(qExp, qCoeff, "__truediv__")
                 print("Division truncated because next quotient term [%d] is outside supported range." % (qExp))
+                quotient.truncated = True
                 hit_step_limit = False
                 break
             # if
@@ -264,7 +358,13 @@ class Number:
             effective_divisor.DisablePrint()
 
             quotient = quotient + qTerm
-            remainder = remainder - (qTerm * effective_divisor)
+            mult_result = qTerm * effective_divisor
+            remainder = remainder - mult_result
+
+            # Propagate truncation from internal operations
+            if qTerm.truncated or mult_result.truncated or remainder.truncated:
+                quotient.truncated = True
+            # if
 
             # Handle inst
             quotient.EnablePrint()
@@ -276,11 +376,13 @@ class Number:
 
         if hit_step_limit and not remainder.IsTrueZero():
             print("Warning: division truncated after %d steps (max_steps reached)" % max_steps)
+            quotient.truncated = True
         # if
 
         quotient.Clean()
+        quotient.Round()
 
-        if(not self.print_enabled):
+        if not self.print_enabled:
             pass
         elif remainder.IsTrueZero():
             print("%s / %s = %s" % (self.Text(), operand.Text(), quotient.Text()))
@@ -304,7 +406,6 @@ class Number:
         # Made it through all disproofs
         return True
     # def
-
 # class
 
 class Matrix:
@@ -410,10 +511,10 @@ class Matrix:
     # def
 
     def DisplayReal(self):
-        print("Name:%s" % (self.name))
+        print("Name:%s (real)" % (self.name))
         for row in self.matrix:
             for col in row:
-                print("  " + col.TextReal() + ",", end="")
+                print(" %.3f," % (col.Real()), end="")
             # for
             print()
         # for
@@ -422,16 +523,15 @@ class Matrix:
 
 # class
 
-# 
 def RunArithTests():
     real1        = Number(1.0)             # 1
     real2        = Number(2.0)             # 2
     trueZero     = Number(0.0)             # 0
     unitZero     = Number(0.0, 0.0, 1.0)   # n^-1
     unitInfinity = Number(1.0, 0.0, 0.0)   # n^1
-    infPlusOne   = Number(1.0, 1.0, 0.0)   # n^-1
-    strange1     = Number(1.23,4.56,7.89)
-    strange2     = Number(9.87,6.54,3.21)
+    infPlusOne   = Number(1.0, 1.0, 0.0)   # 1 + n^1
+    strange1     = Number(1.23, 4.56, 7.89)
+    strange2     = Number(9.87, 6.54, 3.21)
 
     # Add two reals
     result = real1 + real2
@@ -439,7 +539,7 @@ def RunArithTests():
     # Sub two reals
     result = real1 - real2
 
-    # Mult two reals 
+    # Mult two reals
     result = real2 * real2
 
     # Div two reals
@@ -487,19 +587,33 @@ def RunArithTests():
 
     # Add strange numbers to see if subtract reverses it OK
     result = strange1 + strange2
-    result = result   - strange2
+    result = result - strange2
 
     # Multiply strange numbers to see if divide reverses it OK
     result = strange1 * strange2
-    result = result   / strange2
+    result = result / strange2
+
+    # Divide strange numbers to see if multiply reverses it OK
+    result = strange1 / strange2
+    result = result * strange2
 
     # Values that crop up in matrix manipulation
-    val1 = Number(-0.500,0.000,0.000)
-    val2 = Number(1.000,0.500,0.000)
-    result = val1   / val2
-    result = result * val2
-
+    #val1 = Number(-0.500, 0.000, 0.000)
+    #val2 = Number( 1.000, 0.500, 0.000)
+    #result = val1 / val2
+    #result = result * val2
 # def
+
+def RunMatrixTest(mat):
+
+    mat_inv = mat.Invert()
+    mat_inv_inv = mat_inv.Invert()
+    mat.Display()
+    mat_inv.Display()
+    mat_inv_inv.Display()
+    mat_inv_inv.DisplayReal()
+
+#def
 
 def RunMatrixTests():
 
@@ -509,28 +623,33 @@ def RunMatrixTests():
                    [Number(4), Number(7)],
                    [Number(2), Number(6)]
                ])
+    # Correct answer is:
+    # [0.600]
+    # [-0.700]
+    # [-0.200]
+    # [0.400]
+    RunMatrixTest(A)
 
     singular = Matrix("Singular",
                       [
                           [Number(2), Number(4)],
                           [Number(1), Number(2)]
                       ])
+    RunMatrixTest(singular)
 
-    A.Display()
-    A_inv = A.Invert()
-    # Correct answer is:
-    # [[0.600], [-0.700]]
-    # [[-0.200], [0.400]]
-    A_inv.Display()
-    A_inv_inv = A_inv.Invert()
-    A_inv_inv.Display()
+    infinityZero = Matrix("InfinityZero",
+                      [
+                          [Number(0), Number(1,0,0)],
+                          [Number(0), Number(0)]
+                      ])
+    RunMatrixTest(infinityZero)
 
-    singular.Display()
-    singular_inv = singular.Invert()
-    singular_inv.Display()
-    singular_inv_inv = singular_inv.Invert()
-    singular_inv_inv.Display()
-    singular_inv_inv.DisplayReal()
+    infinityTen = Matrix("InfinityTen",
+                      [
+                          [Number(10), Number(1,0,0)],
+                          [Number(10), Number(0)]
+                      ])
+    RunMatrixTest(infinityTen)
 
 # def
 
