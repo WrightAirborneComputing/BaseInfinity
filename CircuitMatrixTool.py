@@ -639,12 +639,7 @@ class CircuitMatrixTool:
             # Handle infinite resistance (open circuit)
             if isinstance(val, float) and math.isinf(val):
                 continue  # no connection
-
-            # Handle zero resistance (short circuit)
-            if val == 0:
-                g = 1e12  # very large conductance approximation
-            else:
-                g = 1.0 / val
+            g = 1.0 / val
 
             stamp_conductance(resistor["n1"], resistor["n2"], g)
 
@@ -676,7 +671,7 @@ class CircuitMatrixTool:
             z[i] = I[i]
         for i in range(k):
             z[m + i] = E[i]
-            solution = self.solve_linear_system(A, z)
+        solution = self.solve_linear_system(A, z)
 
         node_voltages = {"GND": 0.0}
         for i, name in enumerate(node_names):
@@ -688,11 +683,8 @@ class CircuitMatrixTool:
             n2 = resistor["n2"]
             val = resistor["value"]
             vdrop = node_voltages[n1] - node_voltages[n2]
-
             if isinstance(val, float) and math.isinf(val):
                 current = 0.0
-            elif val == 0:
-                current = vdrop * 1e12
             else:
                 current = vdrop / val
 
@@ -772,12 +764,16 @@ class CircuitMatrixTool:
 
         self._append("Solution x:\n")
         self._append(self.format_vector(result["x"]) + "\n\n")
-        self._append("Named results:\n")
+        self._append("Named results:")
+        self._append("\n")
         for name, value in zip(unknowns, result["x"]):
             unit = "V" if name.startswith("V(") else "A"
-            self._append(f"  {name} = {value:.6g} {unit}\n")
+            self._append(f"  {name} = {value:.6g} {unit}")
+        # for
+        self._append("\n")
 
-        self._append("\nResistor flows (positive from Node A to Node B):\n")
+        self._append("Resistor flows (positive from Node A to Node B):")
+        self._append("\n")
         for flow in result["resistor_flows"]:
             resistance = flow["resistance"]
             if isinstance(resistance, float) and math.isinf(resistance):
@@ -788,8 +784,10 @@ class CircuitMatrixTool:
                 f"  {flow['name']}: I = {flow['current']:.6g} A, "
                 f"Vdrop = {flow['voltage_drop']:.6g} V, "
                 f"R = {resistance_text} Ohm, "
-                f"direction {flow['from_node']} -> {flow['to_node']}\n"
-            )
+                f"direction {flow['from_node']} -> {flow['to_node']}")
+            self._append("\n")
+        # for
+        self._append("\n")
 
     def _append(self, text: str):
         self.results_text.insert("end", text)

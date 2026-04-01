@@ -23,13 +23,13 @@
       "name": "R2",
       "n1": "N1",
       "n2": "N2",
-      "value": 1000.0
+      "value": 2.0
     },
     {
       "name": "R3",
       "n1": "N2",
       "n2": "GND",
-      "value": "inf"
+      "value": 0.0
     }
   ],
   "voltage_sources": [
