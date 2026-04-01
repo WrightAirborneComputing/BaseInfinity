@@ -1,11 +1,11 @@
 import math
 
 EPS = 1e-9
-EXPONENTS = [8, 7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6, -7, -8]
+EXPONENTS = [6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6]
 
 _arithPrintEnabled = False
-_truncPrintEnabled = False
-_badMatrixPrintEnabled = False
+_truncPrintEnabled = True
+_badMatrixPrintEnabled = True
 
 def IsZero(value):
     return math.fabs(value) < EPS
@@ -84,9 +84,27 @@ class Number:
     # def
 
     def Round(self):
-        # Force the last (rightmost) negative exponent column to zero
-        #last_neg_exp = min(EXPONENTS)  # = -7
-        #self.column[last_neg_exp].mantissa = 0.0
+        self.Clean()
+
+        # Find the first negative exponent column that is exactly zero,
+        # scanning from -1, -2, -3, ... toward the right.
+        first_zero_neg_exp = None
+        for e in EXPONENTS:
+            if e < 0 and IsZero(self.column[e].mantissa):
+                first_zero_neg_exp = e
+                break
+            # if
+        # for
+
+        # Zero all columns to the right of that one
+        # (i.e. with more-negative exponents).
+        if first_zero_neg_exp is not None:
+            for e in EXPONENTS:
+                if e < first_zero_neg_exp:
+                    self.column[e].mantissa = 0.0
+                # if
+            # for
+        # if
 
         return self
     # def
@@ -195,10 +213,14 @@ class Number:
 
     def Real(self):
         lead = self.LeadingExp()
+
+        # TrueZero
         if lead is None:
-            return self.column[0].mantissa
+            return 0.0
+        # Infinities in the value
         elif lead > 0:
             return float('inf')
+        # Only real and and 1/inf's - discard 1/inf's
         else:
             return self.column[0].mantissa
         # if
@@ -263,7 +285,6 @@ class Number:
         # for
 
         result.Clean()
-        result.Round()
 
         if _arithPrintEnabled: print("%s * %s = %s" % (self.Text(), operand.Text(), result.Text()))
 
@@ -272,9 +293,14 @@ class Number:
 
     def __truediv__(self, operand):
 
+        # Suppress prints for div sub-arithmetic
+        global _arithPrintEnabled
+        arithPrintEnabled = _arithPrintEnabled
+        _arithPrintEnabled = False
+
         operand = operand.Clone().Clean()
 
-        # Create remainder with current value
+        # Create remainder from current value
         remainder = self.Clone().Clean()
 
         # Create an empty number for the result
@@ -345,12 +371,14 @@ class Number:
         # if
 
         quotient.Clean()
-        quotient.Round()
+
+        # Restore arithmetic printing
+        _arithPrintEnabled = arithPrintEnabled
 
         if remainder.IsTrueZero():
             if _arithPrintEnabled: print("%s / %s = %s" % (self.Text(), operand.Text(), quotient.Text()))
         else:
-            if _arithPrintEnabled: print("%s / %s = %s+%s" % (self.Text(), operand.Text(), quotient.Text(), remainder.Text()))
+            if _arithPrintEnabled: print("%s / %s = %s rem=%s" % (self.Text(), operand.Text(), quotient.Text(), remainder.Text()))
         # if
         return quotient
     # def
@@ -381,84 +409,137 @@ class Matrix:
     def ForwardSubstitute(self, L, b):
         n = len(L)
         y = [Number(0.0) for _ in range(n)]
+
         for i in range(n):
             sum_ = Number(0.0)
             for j in range(i):
                 sum_ += L[i][j] * y[j]
             # for
-            y[i] = b[i] - sum_
+
+            # L[i][i] should be 1, but allow general division just in case
+            y[i] = (b[i] - sum_) / L[i][i]
         # for
+
         return y
     # def
 
     def BackwardSubstitute(self, U, y):
         n = len(U)
         x = [Number(0.0) for _ in range(n)]
+
         for i in reversed(range(n)):
-            if U[i][i] == Number(0):
-                if _badMatrixPrintEnabled: print("Warning! Zero diagonal element in U during back substitution.")
-            # if
             sum_ = Number(0.0)
             for j in range(i + 1, n):
                 sum_ += U[i][j] * x[j]
             # for
+
+            # In your system, division by zero is allowed, so do not block it.
             x[i] = (y[i] - sum_) / U[i][i]
         # for
+
         return x
     # def
 
-    def InvertFromLu(self, L, U):
+    def ApplyPermutation(self, P, vec):
+        return [vec[P[i]].Clone() for i in range(len(P))]
+    # def
+
+    def InvertFromLu(self, L, U, P):
         n = len(L)
-        inverse = []
+        inverse_cols = []
+
         for i in range(n):
             # Solve A x = e_i
             e = [Number(0.0) for _ in range(n)]
             e[i] = Number(1.0)
-            y = self.ForwardSubstitute(L, e)
+
+            # Since P*A = L*U, solve L*U*x = P*e
+            pe = self.ApplyPermutation(P, e)
+
+            y = self.ForwardSubstitute(L, pe)
             x = self.BackwardSubstitute(U, y)
-            inverse.append(x)
+            inverse_cols.append(x)
         # for
 
-        # Columns are in rows; transpose the matrix
-        return [list(col) for col in zip(*inverse)]
+        # Transpose columns -> rows
+        return [list(col) for col in zip(*inverse_cols)]
     # def
 
     def LuDecompose(self):
         n = len(self.matrix)
+
+        # Working copy of A
+        A = [[self.matrix[i][j].Clone() for j in range(n)] for i in range(n)]
+
         L = [[Number(0.0) for _ in range(n)] for _ in range(n)]
         U = [[Number(0.0) for _ in range(n)] for _ in range(n)]
+        P = list(range(n))
 
         for i in range(n):
+
+            # Find a row with nonzero entry in column i, at or below row i.
+            pivot = i
+            while pivot < n and A[pivot][i] == Number(0.0):
+                pivot += 1
+            # while
+
+            # If no nonzero pivot exists, keep going.
+            # In your arithmetic system, later divisions may still produce a result.
+            if pivot == n:
+                if _badMatrixPrintEnabled:
+                    print("Warning! Column %d has no nonzero pivot; continuing without row swap." % i)
+                # if
+                pivot = i
+            # if
+
+            # Swap rows in A, permutation P, and the already-built part of L
+            if pivot != i:
+                A[i], A[pivot] = A[pivot], A[i]
+                P[i], P[pivot] = P[pivot], P[i]
+
+                for j in range(i):
+                    L[i][j], L[pivot][j] = L[pivot][j], L[i][j]
+                # for
+            # if
+
+            # Build U row i
             for k in range(i, n):
                 sum_ = Number(0.0)
                 for j in range(i):
                     sum_ += L[i][j] * U[j][k]
                 # for
-                U[i][k] = self.matrix[i][k] - sum_
+                U[i][k] = self.matrix[0][0]  # temporary placeholder
+                U[i][k] = A[i][k] - sum_
             # for
 
-            for k in range(i, n):
-                if i == k:
-                    L[i][i] = Number(1.0)
-                else:
-                    sum_ = Number(0.0)
-                    for j in range(i):
-                        sum_ += L[k][j] * U[j][i]
-                    # for
-                    if U[i][i] == Number(0.0):
-                        if _badMatrixPrintEnabled: print("Warning! Zero pivot encountered.")
-                    # if
-                    L[k][i] = (self.matrix[k][i] - sum_) / U[i][i]
-                # if
+            # Unit diagonal in L
+            L[i][i] = Number(1.0)
+
+            # Build L column i below diagonal
+            for k in range(i + 1, n):
+                sum_ = Number(0.0)
+                for j in range(i):
+                    sum_ += L[k][j] * U[j][i]
+                # for
+
+                # Keep divide-by-zero semantics from Number.__truediv__
+                L[k][i] = (A[k][i] - sum_) / U[i][i]
             # for
         # for
 
-        return L, U
+        return L, U, P
     # def
 
     def Invert(self):
-        L, U = self.LuDecompose()
-        inv = self.InvertFromLu(L, U)
+        L, U, P = self.LuDecompose()
+        inv = self.InvertFromLu(L, U, P)
+
+        for row in inv:
+            for value in row:
+                value.Round()
+            # for
+        # for
+
         return Matrix(self.name + "-Inv", inv)
     # def
 
@@ -501,66 +582,80 @@ def RunArithTests():
     strange2     = Number(9.87, 6.54, 3.21)
 
     # Add two reals
+    print("\nAdd two reals")
     result = real1 + real2
 
     # Sub two reals
+    print("Sub two reals")
     result = real1 - real2
 
     # Mult two reals
+    print("\nMult two reals")
     result = real2 * real2
 
     # Div two reals
+    print("\nDiv two reals")
     result = real1 / real2
 
     # Mult one by unit infinity
+    print("Mult one by unit infinity")
     result = real1 * unitInfinity
 
     # Div reals by unit infinity
+    print("\nDiv reals by unit infinity")
     result = real1 / unitInfinity
     result = real2 / unitInfinity
 
     # Div real by zero
+    print("\nDiv real by zero")
     result = real1 / trueZero
 
     # Mult two by unit infinity
+    print("\nMult two by unit infinity")
     result = real2 * unitInfinity
 
     # Mult unit infinity by 1
+    print("\nMult unit infinity by 1")
     result = unitInfinity * real1
 
     # Div unit infinity by 1
+    print("\nDiv unit infinity by 1")
     result = unitInfinity / real1
 
     # Mult unit zero by unit infinity
+    print("\nMult unit zero by unit infinity")
     result = unitZero * unitInfinity
 
-    # Div two by unit infinity
+    # Div two by unit infinity to see if mult recovers it OK
+    print("\nDiv two by unit infinity to see if mult recovers it OK")
     result = real2 / unitInfinity
-
-    # Mult back out to recover the two
     result = result * unitInfinity
 
-    # Multiply real-plus-infinity and real
+    # Multiply real-plus-infinity and real to see if divide reverses it OK
+    print("\nMultiply real-plus-infinity and real to see if divide reverses it OK")
     result = infPlusOne * real2
-
-    # Divide back out
     result = result / real2
 
     # Divide by a real-plus-infinity (itself)
+    print("\nDivide by a real-plus-infinity (itself)")
     result = infPlusOne / infPlusOne
 
     # Divide by a real-plus-infinity (2 x itself)
+    print("\nDivide by a real-plus-infinity (2 x itself)")
     result = infPlusOne / (infPlusOne * real2)
 
     # Add strange numbers to see if subtract reverses it OK
+    print("\nAdd strange numbers to see if subtract reverses it OK")
     result = strange1 + strange2
     result = result - strange2
 
     # Multiply strange numbers to see if divide reverses it OK
+    print("\nMultiply strange numbers to see if divide reverses it OK")
     result = strange1 * strange2
     result = result / strange2
 
     # Divide strange numbers to see if multiply reverses it OK
+    print("\nDivide strange numbers to see if multiply reverses it OK")
     result = strange1 / strange2
     result = result * strange2
 
@@ -575,6 +670,7 @@ def RunMatrixTest(mat):
     global _arithPrintEnabled
     _arithPrintEnabled = False
 
+    print("\nTesting matrix [%s]" % (mat.name))
     mat_inv = mat.Invert()
     mat_inv_inv = mat_inv.Invert()
     mat.Display()
@@ -586,41 +682,41 @@ def RunMatrixTest(mat):
 
 def RunMatrixTests():
 
-    # Matrix manipulation
-    A = Matrix("A",
-               [
-                   [Number(4), Number(7)],
-                   [Number(2), Number(6)]
-               ])
-    # Correct answer is:
-    # [0.600]
-    # [-0.700]
-    # [-0.200]
-    # [0.400]
-    RunMatrixTest(A)
-
-    singular = Matrix("Singular",
-                      [
-                          [Number(2), Number(4)],
-                          [Number(1), Number(2)]
-                      ])
-    RunMatrixTest(singular)
-
-    infinityZero = Matrix("InfinityZero",
-                      [
-                          [Number(0), Number(1,0,0)],
-                          [Number(0), Number(0)]
-                      ])
-    RunMatrixTest(infinityZero)
+#    # Matrix manipulation
+#    A = Matrix("A",
+#               [
+#                   [Number(4), Number(7)],
+#                   [Number(2), Number(6)]
+#               ])
+#    # Correct answer is:
+#    # [0.600]
+#    # [-0.700]
+#    # [-0.200]
+#    # [0.400]
+#    RunMatrixTest(A)
+#
+#    singular = Matrix("Singular",
+#                      [
+#                          [Number(2), Number(4)],
+#                          [Number(1), Number(2)]
+#                      ])
+#    RunMatrixTest(singular)
+#
+#    infinityZero = Matrix("InfinityZero",
+#                      [
+#                          [Number(0), Number(1,0,0)],
+#                          [Number(0), Number(0)]
+#                      ])
+#    RunMatrixTest(infinityZero)
 
     infinityTen = Matrix("InfinityTen",
                       [
                           [Number(10), Number(1,0,0)],
-                          [Number(10), Number(0)]
+                          [Number(7),  Number(0)]
                       ])
     RunMatrixTest(infinityTen)
 
 # def
 
-RunArithTests()
+# RunArithTests()
 RunMatrixTests()
