@@ -682,39 +682,46 @@ def RunMatrixTest(mat):
 
 def RunMatrixTests():
 
-#    # Matrix manipulation
-#    A = Matrix("A",
-#               [
-#                   [Number(4), Number(7)],
-#                   [Number(2), Number(6)]
-#               ])
-#    # Correct answer is:
-#    # [0.600]
-#    # [-0.700]
-#    # [-0.200]
-#    # [0.400]
-#    RunMatrixTest(A)
-#
-#    singular = Matrix("Singular",
-#                      [
-#                          [Number(2), Number(4)],
-#                          [Number(1), Number(2)]
-#                      ])
-#    RunMatrixTest(singular)
-#
-#    infinityZero = Matrix("InfinityZero",
-#                      [
-#                          [Number(0), Number(1,0,0)],
-#                          [Number(0), Number(0)]
-#                      ])
-#    RunMatrixTest(infinityZero)
+    # Matrix manipulation
+    A = Matrix("A",
+               [
+                   [Number(4), Number(7)],
+                   [Number(2), Number(6)]
+               ])
+    # Correct answer is:
+    # [0.600]
+    # [-0.700]
+    # [-0.200]
+    # [0.400]
+    RunMatrixTest(A)
 
-    infinityTen = Matrix("InfinityTen",
+    singular = Matrix("Singular",
+                      [
+                          [Number(2), Number(4)],
+                          [Number(1), Number(2)]
+                      ])
+    RunMatrixTest(singular)
+
+    infinityZeroes = Matrix("InfinityZeroes",
+                      [
+                          [Number(0), Number(1,0,0)],
+                          [Number(0), Number(0)]
+                      ])
+    RunMatrixTest(infinityZeroes)
+
+    infinityTrueZero = Matrix("InfinityTrueZero",
                       [
                           [Number(10), Number(1,0,0)],
                           [Number(7),  Number(0)]
                       ])
-    RunMatrixTest(infinityTen)
+    RunMatrixTest(infinityTrueZero)
+
+    infinityUnitZero = Matrix("InfinityUnitZero",
+                      [
+                          [Number(10), Number(1,0,0)],
+                          [Number(7),  Number(0,0,1)]
+                      ])
+    RunMatrixTest(infinityUnitZero)
 
 # def
 
