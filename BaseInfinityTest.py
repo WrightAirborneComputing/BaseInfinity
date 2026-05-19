@@ -1,7 +1,8 @@
 import math
 
 EPS = 1e-9
-EXPONENTS = [6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6]
+MAX_EXPONENT = 8
+EXPONENTS = list(range(MAX_EXPONENT, -MAX_EXPONENT - 1, -1))
 
 _arithPrintEnabled = False
 _truncPrintEnabled = True
@@ -9,6 +10,10 @@ _badMatrixPrintEnabled = True
 
 def IsZero(value):
     return math.fabs(value) < EPS
+# def
+
+def IsNearZero(value):
+    return math.fabs(value) < 0.001
 # def
 
 class Column:
@@ -19,8 +24,15 @@ class Column:
     # def
 
     def Text(self):
-        return "%f" % self.mantissa
+        if(IsZero(self.mantissa)):
+            return "Zero"
+        elif(IsNearZero(self.mantissa)):
+            return "NearZero"
+        else:
+            return "%.3f" % self.mantissa
+        # if
     # def
+
 # class
 
 class Number:
@@ -200,12 +212,26 @@ class Number:
         # Determine symmetric range around 0
         k = max(abs(min(used)), abs(max(used)))
 
+        # Determine whether nonzero exponents exist
+        has_nonzero_exp = any(exp != 0 for exp in used)
+
         # Build symmetric list (only within supported EXPONENTS)
         values = []
+
+        # Display each col
         for exp in EXPONENTS:
             if abs(exp) <= k:
-                values.append("%.3f" % self.column[exp].mantissa)
+                value_text = self.column[exp].Text()
+
+                # Highlight zero-power column only when
+                # other exponents are present
+                if (exp == 0) and has_nonzero_exp:
+                    values.append("*" + value_text + "*")
+                else:
+                    values.append(value_text)
+                # if
             # if
+
         # for
 
         return "[" + ",".join(values) + "]"
@@ -575,6 +601,7 @@ def RunArithTests():
     real1        = Number(1.0)             # 1
     real2        = Number(2.0)             # 2
     trueZero     = Number(0.0)             # 0
+    minusOne     = Number(-1.0)            # -1
     unitZero     = Number(0.0, 0.0, 1.0)   # n^-1
     unitInfinity = Number(1.0, 0.0, 0.0)   # n^1
     infPlusOne   = Number(1.0, 1.0, 0.0)   # 1 + n^1
@@ -609,6 +636,10 @@ def RunArithTests():
     # Div real by zero
     print("\nDiv real by zero")
     result = real1 / trueZero
+
+    # Multiply zero by -1
+    print("\nMultiply zero by -1")
+    result = trueZero * minusOne
 
     # Mult two by unit infinity
     print("\nMult two by unit infinity")
@@ -695,12 +726,19 @@ def RunMatrixTests():
     # [0.400]
     RunMatrixTest(A)
 
-    singular = Matrix("Singular",
+    singular1 = Matrix("Singular1",
                       [
                           [Number(2), Number(4)],
                           [Number(1), Number(2)]
                       ])
-    RunMatrixTest(singular)
+    RunMatrixTest(singular1)
+
+    singular2 = Matrix("Singular2",
+                      [
+                          [Number(3), Number(6)],
+                          [Number(5), Number(10)]
+                      ])
+    RunMatrixTest(singular2)
 
     infinityZeroes = Matrix("InfinityZeroes",
                       [
@@ -725,5 +763,5 @@ def RunMatrixTests():
 
 # def
 
-# RunArithTests()
-RunMatrixTests()
+RunArithTests()
+# RunMatrixTests()
