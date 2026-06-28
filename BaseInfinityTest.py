@@ -1,20 +1,12 @@
 import math
 
-EPS = 1e-9
-MAX_EXPONENT = 8
+EPS = 1e-12
+MAX_EXPONENT = 5
 EXPONENTS = list(range(MAX_EXPONENT, -MAX_EXPONENT - 1, -1))
 
 _arithPrintEnabled = False
 _truncPrintEnabled = True
 _badMatrixPrintEnabled = True
-
-def IsZero(value):
-    return math.fabs(value) < EPS
-# def
-
-def IsNearZero(value):
-    return math.fabs(value) < 0.001
-# def
 
 class Column:
 
@@ -23,10 +15,22 @@ class Column:
         self.exp = int(infPower)
     # def
 
+    def Compare(self,value):
+        return self.mantissa == value
+    # def
+
+    def IsZero(self):
+        return self.Compare(0.0)
+    # def
+
+    def IsNearZero(self):
+        return math.fabs(self.mantissa) < 0.001 # i.e. .3f prints 0.000
+    # def
+
     def Text(self):
-        if(IsZero(self.mantissa)):
+        if(self.IsZero()):
             return "Zero"
-        elif(IsNearZero(self.mantissa)):
+        elif(self.IsNearZero()):
             return "NearZero"
         else:
             return "%.3f" % self.mantissa
@@ -87,7 +91,7 @@ class Number:
 
     def Clean(self):
         for e in EXPONENTS:
-            if IsZero(self.column[e].mantissa):
+            if self.column[e].IsZero():
                 self.column[e].mantissa = 0.0
             # if
         # for
@@ -102,7 +106,7 @@ class Number:
         # scanning from -1, -2, -3, ... toward the right.
         first_zero_neg_exp = None
         for e in EXPONENTS:
-            if e < 0 and IsZero(self.column[e].mantissa):
+            if e < 0 and self.column[e].IsZero():
                 first_zero_neg_exp = e
                 break
             # if
@@ -130,7 +134,7 @@ class Number:
 
     def IsTrueZero(self):
         for e in EXPONENTS:
-            if not IsZero(self.column[e].mantissa):
+            if not self.column[e].IsZero():
                 return False
             # if
         # for
@@ -142,11 +146,11 @@ class Number:
 
         for e in EXPONENTS:
             if e == -1:
-                if not IsZero(self.column[e].mantissa - 1.0):
+                if not self.column[e].Compare(1.0):
                     return False
                 # if
             else:
-                if not IsZero(self.column[e].mantissa):
+                if not self.column[e].IsZero():
                     return False
                 # if
             # if
@@ -160,11 +164,11 @@ class Number:
 
         for e in EXPONENTS:
             if e == 1:
-                if not IsZero(self.column[e].mantissa - 1.0):
+                if not self.column[e].Compare(1.0):
                     return False
                 # if
             else:
-                if not IsZero(self.column[e].mantissa):
+                if not self.column[e].IsZero():
                     return False
                 # if
             # if
@@ -175,7 +179,7 @@ class Number:
 
     def LeadingExp(self):
         for e in EXPONENTS:
-            if not IsZero(self.column[e].mantissa):
+            if not self.column[e].IsZero():
                 return e
             # if
         # for
@@ -184,7 +188,7 @@ class Number:
 
     def TrailingExp(self):
         for e in reversed(EXPONENTS):
-            if not IsZero(self.column[e].mantissa):
+            if not self.column[e].IsZero():
                 return e
             # if
         # for
@@ -207,7 +211,7 @@ class Number:
         # if
 
         # Find all non-zero exponents
-        used = [exp for exp in EXPONENTS if not IsZero(self.column[exp].mantissa)]
+        used = [exp for exp in EXPONENTS if not self.column[exp].IsZero()]
 
         # Determine symmetric range around 0
         k = max(abs(min(used)), abs(max(used)))
@@ -288,7 +292,7 @@ class Number:
 
                 resMantissa = self.column[selfExp].mantissa * operand.column[operandExp].mantissa
 
-                if IsZero(resMantissa):
+                if resMantissa==0.0:
                     continue
                 # if
 
@@ -296,7 +300,7 @@ class Number:
 
                 # Detect overflow
                 if resExponent not in result.column:
-                    if(_truncPrintEnabled): print("Multiplication truncated because exponent [%d] is outside supported range." % resExponent)
+                    if(_truncPrintEnabled): print("(Multiplication truncated because exponent [%d] is outside supported range)" % resExponent)
                     result.truncated = True
                     overflow = True
                     break
@@ -415,7 +419,7 @@ class Number:
         operand.Clean()
 
         for i in EXPONENTS:
-            if not IsZero(self.column[i].mantissa - operand.column[i].mantissa):
+            if self.column[i].mantissa != operand.column[i].mantissa:
                 return False
             # if
         # for
@@ -613,7 +617,7 @@ def RunArithTests():
     result = real1 + real2
 
     # Sub two reals
-    print("Sub two reals")
+    print("\nSub two reals")
     result = real1 - real2
 
     # Mult two reals
@@ -625,7 +629,7 @@ def RunArithTests():
     result = real1 / real2
 
     # Mult one by unit infinity
-    print("Mult one by unit infinity")
+    print("\nMult one by unit infinity")
     result = real1 * unitInfinity
 
     # Div reals by unit infinity
@@ -633,13 +637,17 @@ def RunArithTests():
     result = real1 / unitInfinity
     result = real2 / unitInfinity
 
+    # Multiply zero by -1
+    print("\nMultiply zero by -1")
+    result = trueZero * minusOne
+
     # Div real by zero
     print("\nDiv real by zero")
     result = real1 / trueZero
 
-    # Multiply zero by -1
-    print("\nMultiply zero by -1")
-    result = trueZero * minusOne
+    # Divide zero by zero
+    print("\nDivide zero by zero")
+    result = trueZero / trueZero
 
     # Mult two by unit infinity
     print("\nMult two by unit infinity")
@@ -764,4 +772,4 @@ def RunMatrixTests():
 # def
 
 RunArithTests()
-# RunMatrixTests()
+#RunMatrixTests()
