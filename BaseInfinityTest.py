@@ -186,4 +186,4 @@ def RunMatrixTests():
 # def
 
 RunArithTests()
-#RunMatrixTests()
+RunMatrixTests()
