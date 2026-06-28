@@ -13,6 +13,7 @@ class CircuitMatrixTool:
         self.nodes = []
         self.resistors = []
         self.vsources = []
+        self.diagnostics = []
 
         self._build_ui()
         self._load_example()
@@ -129,7 +130,12 @@ class CircuitMatrixTool:
         self.components_list.delete(0, "end")
         for r in self.resistors:
             value_text = "inf" if isinstance(r["value"], float) and math.isinf(r["value"]) else r["value"]
-            self.components_list.insert("end", f'{r["name"]}: {r["n1"]} -- {r["n2"]}   {value_text} Ohm')
+            if self.is_zero_ohm(r["value"]):
+                item_text = f'ERROR: {r["name"]}: {r["n1"]} -- {r["n2"]}   {value_text} Ohm (divide by zero)'
+                self.components_list.insert("end", item_text)
+                self.components_list.itemconfig("end", foreground="red")
+            else:
+                self.components_list.insert("end", f'{r["name"]}: {r["n1"]} -- {r["n2"]}   {value_text} Ohm')
         for v in self.vsources:
             self.components_list.insert("end", f'{v["name"]}: {v["p"]} (+) , {v["n"]} (-)   {v["value"]} V')
 
@@ -138,6 +144,27 @@ class CircuitMatrixTool:
             if node["name"] == name:
                 return node
         return None
+
+    @staticmethod
+    def is_zero_ohm(value) -> bool:
+        try:
+            return (not (isinstance(value, float) and math.isinf(value))) and abs(float(value)) < 1e-15
+        except Exception:
+            return False
+
+    def add_diagnostic(self, severity: str, message: str):
+        self.diagnostics.append({"severity": severity, "message": message})
+
+    def show_diagnostics(self):
+        self.results_text.delete("1.0", "end")
+
+        if not self.diagnostics:
+            self._append("No diagnostics.\n")
+            return
+
+        self._append("Diagnostics:\n")
+        for item in self.diagnostics:
+            self._append(f"  {item['severity']}: {item['message']}\n")
 
     def to_dict(self):
         def encode_resistor_value(value):
@@ -380,12 +407,24 @@ class CircuitMatrixTool:
             self.canvas.create_text(x2 + nx * 16, y2 + ny * 16, text="-", fill=color, font=("Arial", 12, "bold"))
 
     def generate_matrix(self):
+        self.diagnostics = []
+
         try:
             result = self.build_mna_system()
         except ValueError as exc:
+            if not self.diagnostics:
+                self.add_diagnostic("ERROR", str(exc))
+            self.show_diagnostics()
             messagebox.showerror("Cannot generate matrix", str(exc))
             return
+        except ZeroDivisionError as exc:
+            self.add_diagnostic("ERROR", f"Divide by zero intercepted: {exc}")
+            self.show_diagnostics()
+            messagebox.showerror("Divide by zero intercepted", str(exc))
+            return
         except Exception as exc:
+            self.add_diagnostic("ERROR", f"Unexpected error: {exc}")
+            self.show_diagnostics()
             messagebox.showerror("Error", f"Unexpected error: {exc}")
             return
 
@@ -425,6 +464,15 @@ class CircuitMatrixTool:
 
             if isinstance(val, float) and math.isinf(val):
                 continue
+
+            if self.is_zero_ohm(val):
+                message = (
+                    f"Divide by zero intercepted while stamping conductance for resistor "
+                    f"'{resistor['name']}' between {resistor['n1']} and {resistor['n2']}: "
+                    f"resistance is 0 Ohm, so conductance would be 1/0."
+                )
+                self.add_diagnostic("ERROR", message)
+                raise ValueError(message)
 
             g = 1.0 / val
             stamp_conductance(resistor["n1"], resistor["n2"], g)
@@ -472,6 +520,14 @@ class CircuitMatrixTool:
 
             if isinstance(val, float) and math.isinf(val):
                 current = 0.0
+            elif self.is_zero_ohm(val):
+                message = (
+                    f"Divide by zero intercepted while calculating current for resistor "
+                    f"'{resistor['name']}' between {n1} and {n2}: "
+                    f"current would be Vdrop/0."
+                )
+                self.add_diagnostic("ERROR", message)
+                raise ValueError(message)
             else:
                 current = vdrop / val
 
@@ -533,6 +589,12 @@ class CircuitMatrixTool:
         vsource_names = result["vsource_names"]
 
         unknowns = [f"V({name})" for name in node_names] + [f"I({name})" for name in vsource_names]
+
+        if self.diagnostics:
+            self._append("Diagnostics:\n")
+            for item in self.diagnostics:
+                self._append(f"  {item['severity']}: {item['message']}\n")
+            self._append("\n")
 
         self._append("Unknown vector x:\n")
         self._append("  [ " + ", ".join(unknowns) + " ]^T\n\n")
