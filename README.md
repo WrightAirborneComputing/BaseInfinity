@@ -3,7 +3,9 @@ Let’s use a base-infinity number system, and why that would be useful
 I’ve always had a problem div-by-zero in CompSci. Like every software engineer, a little piece of me dies inside when a div-by-zero exception goes off during testing: I hang some God-awful code around it and hope that there isn’t another ticking bomb out there in the solution-space.
 
 Take two calculations:
+
 1/inf==0 & 2/inf==0
+
 There has been information loss, effectively a floating-point truncation error. So, if we add 1/inf and 2/inf, we get zero. Even if we multiply back out by infinity, we still get zero.
 But (1/inf + 2/inf)*inf => (1+2) / (inf/inf), so if we multiply by infinity it “should” get our original 1+2 = 3 back. It would be nice to avoid that data-loss.
 “Surely there are no practical use cases where we multiply back out by inf, so surely this is all a bit academic?” you say. However, yes we do so no it isn’t. More on that later.
